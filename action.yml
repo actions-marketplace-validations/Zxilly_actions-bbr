@@ -1,5 +1,8 @@
 name: 'Enable TCP BBR Congestion Control'
 description: 'Attempts to enable BBR on Linux or BBR2 on Windows.'
+branding:
+  color: 'blue'
+  icon: 'airplay'
 
 runs:
   using: "composite"
