@@ -27,7 +27,7 @@ jobs:
     
     # Enable BBR congestion control early in your workflow
     - name: Enable TCP BBR
-      uses: user/actions-bbr@v1
+      uses: Zxilly/actions-bbr@v1
       
     # Your other workflow steps
     - name: Build and Test
