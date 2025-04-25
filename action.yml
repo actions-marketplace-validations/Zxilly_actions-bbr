@@ -9,7 +9,7 @@ runs:
       if: runner.os != 'Linux' && runner.os != 'Windows'
       run: |
         echo "Unsupported OS. Exiting..."
-        exit 1
+        exit 0
 
     - name: Enable BBR on Linux
       if: runner.os == 'Linux'
@@ -28,8 +28,6 @@ runs:
           echo "tcp_bbr module is loaded."
         else
           echo "WARNING: Failed to load tcp_bbr module. BBR might not be available."
-          # Optionally exit here if BBR is strictly required
-          # exit 1
         fi
 
         # Enable BBR and FQ (Fair Queue) which often works well with BBR
@@ -38,7 +36,6 @@ runs:
         echo "Setting net.ipv4.tcp_congestion_control=bbr"
         sudo sysctl -w net.ipv4.tcp_congestion_control=bbr || echo "WARNING: Failed to set tcp_congestion_control=bbr"
 
-        # Verify changes
         echo "--- Verification ---"
         echo "New congestion control:"
         sudo sysctl net.ipv4.tcp_congestion_control || echo "Could not verify congestion control"
@@ -48,23 +45,37 @@ runs:
         sudo sysctl net.ipv4.tcp_available_congestion_control || echo "Could not list available controls"
         echo "BBR setup on Linux attempted."
 
-    - name: Enable BBR2 on Windows (All Profiles)
+    - name: Enable BBR2 on Windows
       if: runner.os == 'Windows'
       shell: pwsh
       run: |
         echo "Attempting to enable BBR2 on Windows for all available profiles..."
 
-        # Check if BBR2 is listed as a potential provider using type introspection
-        echo "Checking available providers via type introspection..."
+        echo "Importing NetTCPIP module..."
         try {
-          $availableProviders = [Microsoft.PowerShell.Cmdletization.GeneratedTypes.NetTCPSetting.CongestionProvider].DeclaredMembers.Name
+          Import-Module -Name NetTCPIP -ErrorAction Stop
+          echo "Successfully imported NetTCPIP module."
+        } catch {
+          echo "Failed to import NetTCPIP module: $($_.Exception.Message)"
+          echo "This might indicate that the system does not support the required networking features."
+          exit 0
+        }
+
+        echo "Checking if BBR2 is available..."
+        try {
+          $availableProviders = [Enum]::GetNames([Microsoft.PowerShell.Cmdletization.GeneratedTypes.NetTCPSetting.CongestionProvider])
           if ($availableProviders -contains 'BBR2') {
-            echo "Provider 'BBR2' is declared in the NetTCPSetting type."
+            echo "BBR2 is available as a congestion provider option."
           } else {
-            echo "Provider 'BBR2' is NOT declared in the NetTCPSetting type. OS/Version might not support it."
+            echo "BBR2 is NOT available as a congestion provider. Your Windows version may not support it."
+            echo "Available providers: $($availableProviders -join ', ')"
+            echo "Skipping BBR2 configuration."
+            exit 0
           }
         } catch {
-          echo "Could not perform type introspection for CongestionProvider: $($_.Exception.Message)"
+          echo "Error checking for BBR2 availability: $($_.Exception.Message)"
+          echo "Skipping BBR2 configuration."
+          exit 0
         }
 
         # Show current TCP settings before modification
