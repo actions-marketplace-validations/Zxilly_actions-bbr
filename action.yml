@@ -1,0 +1,99 @@
+name: 'Enable TCP BBR Congestion Control'
+description: 'Attempts to enable BBR on Linux or BBR2 on Windows.'
+
+runs:
+  using: "composite"
+  steps:
+    - name: Exit on unsupported OS
+      shell: bash
+      if: runner.os != 'Linux' && runner.os != 'Windows'
+      run: |
+        echo "Unsupported OS. Exiting..."
+        exit 1
+
+    - name: Enable BBR on Linux
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        echo "Attempting to enable BBR on Linux..."
+        # Check current settings
+        echo "Current congestion control:"
+        sudo sysctl net.ipv4.tcp_congestion_control || echo "Could not read current congestion control"
+        echo "Current default qdisc:"
+        sudo sysctl net.core.default_qdisc || echo "Could not read current qdisc"
+
+        # Load BBR module
+        sudo modprobe tcp_bbr
+        if lsmod | grep -q tcp_bbr; then
+          echo "tcp_bbr module is loaded."
+        else
+          echo "WARNING: Failed to load tcp_bbr module. BBR might not be available."
+          # Optionally exit here if BBR is strictly required
+          # exit 1
+        fi
+
+        # Enable BBR and FQ (Fair Queue) which often works well with BBR
+        echo "Setting net.core.default_qdisc=fq"
+        sudo sysctl -w net.core.default_qdisc=fq || echo "WARNING: Failed to set default_qdisc=fq"
+        echo "Setting net.ipv4.tcp_congestion_control=bbr"
+        sudo sysctl -w net.ipv4.tcp_congestion_control=bbr || echo "WARNING: Failed to set tcp_congestion_control=bbr"
+
+        # Verify changes
+        echo "--- Verification ---"
+        echo "New congestion control:"
+        sudo sysctl net.ipv4.tcp_congestion_control || echo "Could not verify congestion control"
+        echo "New default qdisc:"
+        sudo sysctl net.core.default_qdisc || echo "Could not verify qdisc"
+        echo "Available congestion controls:"
+        sudo sysctl net.ipv4.tcp_available_congestion_control || echo "Could not list available controls"
+        echo "BBR setup on Linux attempted."
+
+    - name: Enable BBR2 on Windows (All Profiles)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        echo "Attempting to enable BBR2 on Windows for all available profiles..."
+
+        # Check if BBR2 is listed as a potential provider using type introspection
+        echo "Checking available providers via type introspection..."
+        try {
+          $availableProviders = [Microsoft.PowerShell.Cmdletization.GeneratedTypes.NetTCPSetting.CongestionProvider].DeclaredMembers.Name
+          if ($availableProviders -contains 'BBR2') {
+            echo "Provider 'BBR2' is declared in the NetTCPSetting type."
+          } else {
+            echo "Provider 'BBR2' is NOT declared in the NetTCPSetting type. OS/Version might not support it."
+          }
+        } catch {
+          echo "Could not perform type introspection for CongestionProvider: $($_.Exception.Message)"
+        }
+
+        # Show current TCP settings before modification
+        echo "--- Current TCP Settings (Before Change) ---"
+        Get-NetTCPSetting | Select-Object SettingName, CongestionProvider
+
+        # Get all TCP setting profiles
+        $profiles = Get-NetTCPSetting
+        if (-not $profiles) {
+          Write-Warning "Could not retrieve any NetTCPSetting profiles."
+          exit 0 # Exit gracefully, nothing to do. Or exit 1 if this is critical.
+        }
+
+        echo "--- Attempting to Apply BBR2 ---"
+        foreach ($profile in $profiles) {
+          $profileName = $profile.SettingName
+          echo "Processing profile: '$profileName'"
+          try {
+            # Requires administrative privileges
+            # Use -ErrorAction Stop to ensure errors are caught by the 'catch' block
+            Set-NetTCPSetting -SettingName $profileName -CongestionProvider BBR2 -ErrorAction Stop
+            echo "Successfully set CongestionProvider to BBR2 for SettingName '$profileName'."
+          } catch {
+            Write-Warning "Failed to set CongestionProvider to BBR2 for SettingName '$profileName'. Error: $($_.Exception.Message)"
+            Write-Warning "This might be due to permissions, OS version support, or profile restrictions."
+          }
+        }
+
+        # Verify the changes
+        echo "--- Updated TCP Settings (After Change Attempt) ---"
+        Get-NetTCPSetting | Select-Object SettingName, CongestionProvider
+        echo "BBR2 setup attempt on Windows completed for all profiles."

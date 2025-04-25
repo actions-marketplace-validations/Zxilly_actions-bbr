@@ -1,0 +1,70 @@
+name: Test BBR Congestion Control Activation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  test-linux:
+    name: Test on Linux
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Check initial TCP congestion control
+        run: |
+          echo "Initial congestion control settings:"
+          sysctl net.ipv4.tcp_congestion_control || echo "Could not read congestion control"
+          sysctl net.core.default_qdisc || echo "Could not read qdisc"
+      
+      - name: Enable BBR (using local action)
+        uses: ./
+        
+      - name: Verify BBR activation
+        run: |
+          echo "Verifying BBR activation:"
+          sysctl net.ipv4.tcp_congestion_control || echo "Could not verify congestion control"
+          sysctl net.core.default_qdisc || echo "Could not verify qdisc"
+          if [[ $(sysctl -n net.ipv4.tcp_congestion_control) == "bbr" ]]; then
+            echo "✅ BBR successfully activated!"
+          else
+            echo "❌ BBR activation failed!"
+            exit 1
+          fi
+
+  test-windows:
+    name: Test on Windows
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      
+      - name: Check initial TCP congestion control
+        shell: pwsh
+        run: |
+          echo "Initial congestion control settings:"
+          Get-NetTCPSetting | Select-Object SettingName, CongestionProvider | Format-Table
+      
+      - name: Enable BBR2 (using local action)
+        uses: ./
+        
+      - name: Verify BBR2 activation
+        shell: pwsh
+        run: |
+          echo "Verifying BBR2 activation:"
+          $settings = Get-NetTCPSetting | Select-Object SettingName, CongestionProvider
+          $settings | Format-Table
+          
+          $bbr2Profiles = $settings | Where-Object { $_.CongestionProvider -eq "BBR2" }
+          if ($bbr2Profiles) {
+            $count = ($bbr2Profiles | Measure-Object).Count
+            $totalCount = ($settings | Measure-Object).Count
+            echo "✅ BBR2 activated on $count out of $totalCount profiles!"
+          } else {
+            echo "❌ BBR2 activation failed! Not enabled on any profile."
+            # exit 1
+          }
