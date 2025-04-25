@@ -1,4 +1,4 @@
-# GitHub Action: Enable TCP BBR Congestion Control
+# actions-bbr
 
 This action attempts to enable the BBR (Bottleneck Bandwidth and RTT) congestion control algorithm on your GitHub Actions runners to potentially improve network performance. It supports both Linux and Windows platforms.
 
